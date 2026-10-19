@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Full-stack SoundCloud Scraper, In-Browser Audio Player & Lossless MP3 Downloader",
   "scripts": {
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
     "dev:backend": "cd backend && npm run dev",
     "start:backend": "cd backend && npm start",
     "dev:frontend": "cd frontend && npm run dev",
