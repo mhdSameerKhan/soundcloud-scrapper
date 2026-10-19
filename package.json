@@ -1,0 +1,20 @@
+{
+  "name": "soundcloud-scraper-suite",
+  "version": "1.0.0",
+  "description": "Full-stack SoundCloud Scraper, In-Browser Audio Player & Lossless MP3 Downloader",
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "start:backend": "cd backend && npm start",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build"
+  },
+  "keywords": [
+    "soundcloud",
+    "scraper",
+    "yt-dlp",
+    "audio-player",
+    "mp3-downloader"
+  ],
+  "author": "",
+  "license": "MIT"
+}

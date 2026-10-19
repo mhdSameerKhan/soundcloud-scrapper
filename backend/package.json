@@ -1,0 +1,28 @@
+{
+  "name": "soundcloud-scraper-backend",
+  "version": "1.0.0",
+  "description": "SoundCloud Scraper and High-Performance Audio Streaming Engine powered by yt-dlp",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "keywords": [
+    "soundcloud",
+    "scraper",
+    "yt-dlp",
+    "audio-streamer",
+    "mp3-downloader"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
