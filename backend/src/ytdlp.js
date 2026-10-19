@@ -123,9 +123,11 @@ async function ensureTrackCached(url, trackId) {
     const args = [
       '--no-playlist',
       '--no-warnings',
+      '-N', '5', // 5 concurrent fragment downloads for ~3x-5x faster HLS fetching
+      '--socket-timeout', '15',
       '-x',
       '--audio-format', 'mp3',
-      '--audio-quality', '0', // Highest audio quality VBR/CBR
+      '--audio-quality', '3', // Fast transparent audio quality matching SoundCloud source bitrate
       '-o', outTemplate
     ];
 

@@ -51,6 +51,11 @@ router.all('/scrape', async (req, res) => {
     const streamUrl = `/api/stream?${queryParams}`;
     const downloadUrl = `/api/download?${queryParams}`;
 
+    // Pre-cache track in the background immediately so it's ready when the user clicks Play
+    ensureTrackCached(track.webpageUrl || url, track.id).catch(err => {
+      console.warn(`[Precache] Background caching for track ${track.id} failed:`, err.message);
+    });
+
     res.json({
       success: true,
       track: {

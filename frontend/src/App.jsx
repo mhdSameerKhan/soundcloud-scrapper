@@ -324,12 +324,20 @@ export default function App() {
       {track && (
         <main className="track-card">
           {/* Album Artwork */}
-          <div className="artwork-container">
+          <div className={`artwork-container ${isPlaying ? 'playing-aura' : ''}`}>
             <img
               src={track.thumbnail || '/favicon.svg'}
               alt={track.title}
-              className={`artwork-img ${isPlaying ? 'vinyl-active' : ''}`}
+              className="artwork-img"
             />
+            {isPlaying && (
+              <div className="artwork-playing-badge" title="Now Playing">
+                <span className="equalizer-bar bar-1"></span>
+                <span className="equalizer-bar bar-2"></span>
+                <span className="equalizer-bar bar-3"></span>
+                <span className="equalizer-bar bar-4"></span>
+              </div>
+            )}
             <div className="artwork-overlay-badge">
               <Clock size={12} style={{ display: 'inline', marginRight: 4 }} />
               {track.durationFormatted}
@@ -400,7 +408,13 @@ export default function App() {
                 ) : (
                   <Play size={20} fill="#ffffff" />
                 )}
-                <span>{isPlaying ? 'Pause Track' : 'Play Full Song'}</span>
+                <span>
+                  {audioBuffering
+                    ? 'Buffering Audio...'
+                    : isPlaying
+                    ? 'Pause Track'
+                    : 'Play Full Song'}
+                </span>
               </button>
 
               <button

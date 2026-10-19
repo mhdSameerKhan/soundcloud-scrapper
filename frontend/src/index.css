@@ -112,17 +112,27 @@ a {
   to { transform: rotate(360deg); }
 }
 
-@keyframes vinylSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+@keyframes playingAuraPulse {
+  0% {
+    box-shadow: 0 12px 35px rgba(0, 0, 0, 0.6), 0 0 0 rgba(255, 85, 0, 0);
+    border-color: var(--border-subtle);
+  }
+  50% {
+    box-shadow: 0 16px 45px rgba(0, 0, 0, 0.7), 0 0 35px rgba(255, 85, 0, 0.45);
+    border-color: rgba(255, 85, 0, 0.6);
+  }
+  100% {
+    box-shadow: 0 12px 35px rgba(0, 0, 0, 0.6), 0 0 0 rgba(255, 85, 0, 0);
+    border-color: var(--border-subtle);
+  }
 }
 
 .spin {
   animation: spinSlow 1s linear infinite;
 }
 
-.vinyl-active {
-  animation: vinylSpin 14s linear infinite;
+.playing-aura {
+  animation: playingAuraPulse 3s ease-in-out infinite;
 }
 
 /* Sliders */

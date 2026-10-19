@@ -273,6 +273,42 @@
   font-size: 0.75rem;
   font-family: var(--font-mono);
   color: #fff;
+  z-index: 2;
+}
+
+.artwork-playing-badge {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  background: rgba(10, 12, 18, 0.8);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 85, 0, 0.5);
+  padding: 6px 10px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 24px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 2;
+}
+
+.equalizer-bar {
+  width: 3px;
+  background: var(--sc-orange);
+  border-radius: 2px;
+  transform-origin: bottom;
+  animation: equalizerBounce 0.8s ease-in-out infinite alternate;
+}
+
+.equalizer-bar.bar-1 { height: 14px; animation-delay: 0.1s; }
+.equalizer-bar.bar-2 { height: 7px; animation-delay: 0.3s; }
+.equalizer-bar.bar-3 { height: 15px; animation-delay: 0.2s; }
+.equalizer-bar.bar-4 { height: 10px; animation-delay: 0.45s; }
+
+@keyframes equalizerBounce {
+  0% { transform: scaleY(0.25); }
+  100% { transform: scaleY(1); }
 }
 
 .track-info {
