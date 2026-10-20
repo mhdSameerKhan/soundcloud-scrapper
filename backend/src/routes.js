@@ -1,7 +1,19 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { scrapeTrackInfo, ensureTrackCached, getSystemHealth } = require('./ytdlp');
+const { CACHE_DIR } = require('./config');
+const {
+  validateSoundCloudUrl,
+  sanitizeTrackId,
+  scrapeTrackInfo,
+  resolveStreamInfo,
+  evictStreamInfo,
+  isTrackDownloading,
+  createProgressiveAudioStream,
+  ensureTrackCached,
+  getSystemHealth
+} = require('./ytdlp');
+const metrics = require('./metrics');
 
 const router = express.Router();
 
@@ -10,6 +22,43 @@ function sanitizeFilename(name) {
     .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
     .trim()
     .substring(0, 100);
+}
+
+/**
+ * Helper to serve a fully cached file supporting HTTP Range requests
+ */
+function serveCachedFileWithRange(filePath, fileSize, range, res) {
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('X-Audio-Source', 'disk-cache');
+
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+    if (start >= fileSize || end >= fileSize) {
+      res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
+      return;
+    }
+
+    const chunkSize = (end - start) + 1;
+    const fileStream = fs.createReadStream(filePath, { start, end });
+
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Content-Length': chunkSize,
+      'Content-Type': 'audio/mpeg'
+    });
+
+    fileStream.pipe(res);
+  } else {
+    res.writeHead(200, {
+      'Content-Length': fileSize,
+      'Content-Type': 'audio/mpeg'
+    });
+
+    fs.createReadStream(filePath).pipe(res);
+  }
 }
 
 // Health & System Info
@@ -40,7 +89,7 @@ router.all('/scrape', async (req, res) => {
   try {
     const track = await scrapeTrackInfo(url);
 
-    // Build stream and download URLs for convenience
+    // Build stream and download URLs for frontend
     const queryParams = new URLSearchParams({
       id: track.id,
       url: track.webpageUrl || url,
@@ -51,7 +100,7 @@ router.all('/scrape', async (req, res) => {
     const streamUrl = `/api/stream?${queryParams}`;
     const downloadUrl = `/api/download?${queryParams}`;
 
-    // Pre-cache track in the background immediately so it's ready when the user clicks Play
+    // Pre-cache track in the background immediately so it's ready when user downloads or replays
     ensureTrackCached(track.webpageUrl || url, track.id).catch(err => {
       console.warn(`[Precache] Background caching for track ${track.id} failed:`, err.message);
     });
@@ -73,58 +122,101 @@ router.all('/scrape', async (req, res) => {
   }
 });
 
-// Stream Audio for UI Audio Player (Supports HTTP Range Requests for instant seeking & full playback)
+// Stream Audio for UI Audio Player
+// Uses progressive streaming on cold cache and instant range requests on warm cache
 router.get('/stream', async (req, res) => {
-  const { url, id } = req.query;
+  const t0 = Date.now();
+  const { url, id, t } = req.query;
 
   if (!url && !id) {
     return res.status(400).json({ error: 'Missing track URL or ID' });
   }
 
+  const safeId = sanitizeTrackId(id);
+  const targetMp3 = safeId ? path.join(CACHE_DIR, `${safeId}.mp3`) : null;
+  const range = req.headers.range;
+
+  // 1. WARM CACHE PATH: If complete MP3 file is already cached, serve immediately with Range support
+  if (targetMp3 && fs.existsSync(targetMp3)) {
+    const stat = fs.statSync(targetMp3);
+    if (stat.size > 10240) {
+      metrics.recordCacheHit();
+      metrics.recordFirstClientByte(Date.now() - t0);
+      return serveCachedFileWithRange(targetMp3, stat.size, range, res);
+    }
+  }
+
+  // 2. COLD CACHE PATH: Progressive streaming without waiting for complete download
+  metrics.recordCacheMiss();
+
+  // Trigger background caching if not already running for this track
+  if (url && !isTrackDownloading(safeId || id, url)) {
+    ensureTrackCached(url, safeId || id).catch(err => {
+      console.warn(`[BackgroundCache] Caching track ${id} failed:`, err.message);
+    });
+  }
+
   try {
-    const filePath = await ensureTrackCached(url, id);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Track audio file not found' });
+    const streamInfo = await resolveStreamInfo(url, safeId || id);
+    if (!streamInfo || !streamInfo.streamUrl) {
+      return res.status(404).json({ error: 'Could not resolve audio stream for track' });
     }
 
-    const stat = fs.statSync(filePath);
-    const fileSize = stat.size;
-    const range = req.headers.range;
+    // Abort if client already disconnected during resolution
+    if (req.destroyed || res.writableEnded) {
+      return;
+    }
 
-    if (range) {
-      // Range request: "bytes=START-END"
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const startTime = (t && !isNaN(parseFloat(t))) ? Math.max(0, parseFloat(t)) : 0;
 
-      if (start >= fileSize || end >= fileSize) {
-        res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
-        return;
+    const { stream, childProcess } = createProgressiveAudioStream({
+      streamUrl: streamInfo.streamUrl,
+      httpHeaders: streamInfo.httpHeaders,
+      startTime
+    });
+
+    // Cleanup: isolate childProcess so only this playback instance is terminated on client abort
+    const cleanup = () => {
+      if (childProcess && !childProcess.killed) {
+        try {
+          childProcess.kill('SIGTERM');
+        } catch (_) {}
       }
+    };
 
-      const chunkSize = (end - start) + 1;
-      const fileStream = fs.createReadStream(filePath, { start, end });
+    req.on('close', cleanup);
+    res.on('finish', cleanup);
 
-      res.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
-        'Content-Type': 'audio/mpeg'
-      });
+    let clientByteSent = false;
 
-      fileStream.pipe(res);
-    } else {
-      // Full file request
-      res.writeHead(200, {
-        'Content-Length': fileSize,
-        'Content-Type': 'audio/mpeg',
-        'Accept-Ranges': 'bytes'
-      });
+    stream.on('data', () => {
+      if (!clientByteSent) {
+        clientByteSent = true;
+        metrics.recordFirstClientByte(Date.now() - t0);
+      }
+    });
 
-      fs.createReadStream(filePath).pipe(res);
-    }
+    stream.on('error', err => {
+      console.error('[ProgressiveStream] Stream error:', err.message);
+      evictStreamInfo(safeId || id, url);
+      cleanup();
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Upstream audio stream failed. Please try again.' });
+      }
+    });
+
+    // Progressive live stream: do NOT advertise byte ranges since it is dynamic live transcode
+    res.writeHead(200, {
+      'Content-Type': 'audio/mpeg',
+      'Transfer-Encoding': 'chunked',
+      'Accept-Ranges': 'none',
+      'X-Audio-Source': 'progressive-stream',
+      'Cache-Control': 'no-cache, no-store'
+    });
+
+    stream.pipe(res);
   } catch (err) {
-    console.error('Streaming error:', err.message);
+    console.error('Streaming initialization error:', err.message);
     if (!res.headersSent) {
       res.status(500).json({ error: err.message || 'Failed to stream track' });
     }
@@ -132,6 +224,7 @@ router.get('/stream', async (req, res) => {
 });
 
 // Download Audio as MP3 File
+// Always guarantees a complete, high-quality, fully tagged MP3 file
 router.get('/download', async (req, res) => {
   const { url, id, title, artist } = req.query;
 
@@ -139,10 +232,17 @@ router.get('/download', async (req, res) => {
     return res.status(400).json({ error: 'Missing track URL or ID' });
   }
 
+  const safeId = sanitizeTrackId(id);
+
   try {
-    const filePath = await ensureTrackCached(url, id);
+    const filePath = await ensureTrackCached(url, safeId || id);
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Track audio file not found' });
+      return res.status(404).json({ error: 'Track audio file could not be generated' });
+    }
+
+    const stat = fs.statSync(filePath);
+    if (stat.size <= 10240) {
+      return res.status(500).json({ error: 'Downloaded file is incomplete' });
     }
 
     const cleanTitle = sanitizeFilename(title || 'Track');
